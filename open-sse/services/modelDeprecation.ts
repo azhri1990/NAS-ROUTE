@@ -48,11 +48,17 @@ const BUILT_IN_ALIASES: Record<string, string> = {
   "fireworks/accounts/fireworks/models/kimi-k2": "moonshotai/Kimi-K2",
   "kimi-k2": "moonshotai/Kimi-K2",
 
-  // Qwen — the model ships only under the `-preview` id (bailian-coding-plan, qoder,
-  // qwen-cloud-token-plan, qwen-web). Without this, the bare id missed MODEL_SPECS and
-  // the context preflight fell back to contextManager's `default: 128000`, rejecting
-  // prompts the model's real 1M window accepts. Drop this line if Alibaba ever ships a
-  // distinct GA `qwen3.8-max` — it would no longer be the same model.
+  // Qwen — the model ships under the `-preview` id for bailian-coding-plan and qoder.
+  // Without this, the bare id missed MODEL_SPECS and the context preflight fell back to
+  // contextManager's `default: 128000`, rejecting prompts the model's real 1M window
+  // accepts. Drop this line if Alibaba ever ships a distinct GA `qwen3.8-max` — it
+  // would no longer be the same model.
+  //
+  // This alias is provider-scoped on purpose: qwen-cloud-token-plan and qwen-web ship
+  // the BARE `qwen3.8-max` as their native id (registry entries
+  // config/providers/registry/qwen-cloud-token-plan/index.ts and .../qwen/web, and
+  // executors/qwen-web.ts maps "-preview" -> bare because bare is what it serves), so
+  // resolveModelAlias() skips the rewrite for them via hasKnownProviderModel().
   "qwen3.8-max": "qwen3.8-max-preview",
 
   // Mistral short aliases

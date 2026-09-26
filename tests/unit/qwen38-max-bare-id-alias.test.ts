@@ -5,9 +5,9 @@ import { resolveModelAlias } from "../../open-sse/services/modelDeprecation.ts";
 import { resolveLifecycle } from "../../open-sse/handlers/chatCore/modelLifecyclePolicy.ts";
 
 /**
- * Bare `qwen3.8-max` was an unroutable id: the model ships everywhere as
- * `qwen3.8-max-preview` (bailian-coding-plan, qoder, qwen-cloud-token-plan, qwen-web),
- * and nothing in the repo declared the short form. A client sending it therefore
+ * Bare `qwen3.8-max` was an unroutable id for the providers that ship the model under
+ * its `-preview` id (bailian-coding-plan, qoder): nothing in the repo declared the
+ * short form. A client sending it therefore
  *
  *   1. missed MODEL_SPECS, so `getModelContextLimit()` fell through to the
  *      `default: 128000` in open-sse/services/contextManager.ts, and the chatCore
@@ -22,6 +22,11 @@ import { resolveLifecycle } from "../../open-sse/handlers/chatCore/modelLifecycl
  * applies at open-sse/handlers/chatCore.ts:755, well before both the context
  * preflight and the upstream dispatch. A MODEL_SPECS `aliases` entry would have
  * fixed only (1): spec aliases resolve capabilities, never the dispatched id.
+ *
+ * Scope note: this alias is deliberately NOT applied for qwen-cloud-token-plan and
+ * qwen-web. Those two providers ship the bare `qwen3.8-max` as their native id, and
+ * `resolveModelAlias()` skips the rewrite whenever `hasKnownProviderModel()` reports
+ * the provider serves the id itself. See the lifecycle test below.
  */
 
 const BARE = "qwen3.8-max";
@@ -44,11 +49,28 @@ test("the alias target carries the real 1M window, not the 128k fallback", () =>
   assert.equal(MODEL_SPECS[BARE], undefined);
 });
 
-test("chatCore lifecycle resolution rewrites the model before dispatch", () => {
-  for (const provider of ["qwen-cloud-token-plan", "qoder", "bailian-coding-plan", "qwen-web"]) {
+test("chatCore lifecycle rewrites the bare id only for providers that ship -preview", () => {
+  // Only bailian-coding-plan and qoder serve the `-preview` id. qwen-cloud-token-plan
+  // and qwen-web ship the BARE `qwen3.8-max` as their native id — see their registries
+  // (open-sse/config/providers/registry/qwen-cloud-token-plan/index.ts:14 and
+  // .../qwen/web/index.ts:20) and open-sse/executors/qwen-web.ts:61, which maps
+  // "qwen3.8-max-preview" -> "qwen3.8-max" because bare is what qwen-web serves.
+  // For those two, resolveModelAlias must leave the id alone: rewriting to `-preview`
+  // would dispatch an id the upstream does not know.
+  const servesPreview = ["qoder", "bailian-coding-plan"];
+  const servesBare = ["qwen-cloud-token-plan", "qwen-web"];
+
+  for (const provider of servesPreview) {
     const [resolvedModel, effectiveModel, lifecycleError] = resolveLifecycle(provider, BARE);
     assert.equal(resolvedModel, CANONICAL, `resolvedModel for ${provider}`);
     assert.equal(effectiveModel, CANONICAL, `effectiveModel for ${provider}`);
+    assert.equal(lifecycleError, null, `unexpected lifecycle rejection for ${provider}`);
+  }
+
+  for (const provider of servesBare) {
+    const [resolvedModel, effectiveModel, lifecycleError] = resolveLifecycle(provider, BARE);
+    assert.equal(resolvedModel, BARE, `${provider} serves the bare id natively; must not rewrite`);
+    assert.equal(effectiveModel, BARE, `effectiveModel for ${provider}`);
     assert.equal(lifecycleError, null, `unexpected lifecycle rejection for ${provider}`);
   }
 });
