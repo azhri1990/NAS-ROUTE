@@ -136,6 +136,14 @@ export function resolveNextBuildBundlerFlag(baseEnv = process.env) {
   if (baseEnv.OMNIROUTE_USE_TURBOPACK === "0") {
     return "--webpack";
   }
+  // Under Bun, Turbopack's native V8 bindings are unavailable, so Turbopack cannot
+  // run there. scripts/dev/run-next.mjs already forces Webpack under Bun for the same
+  // reason; the isolated build has to agree, otherwise `bun run build` emits a bundle
+  // the dev server cannot reproduce. Unlike the OMNIROUTE_USE_TURBOPACK=0 escape
+  // hatch above, this is not overridable — there is no working Turbopack to opt into.
+  if (process.versions.bun) {
+    return "--webpack";
+  }
   return "--turbopack";
 }
 
