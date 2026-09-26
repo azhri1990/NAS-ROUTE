@@ -11,6 +11,8 @@ import assert from "node:assert/strict";
 import {
   parseCodeQLAlerts,
   evaluateCodeqlRatchet,
+  isProductionPath,
+  PRODUCTION_PATH_PREFIXES,
 } from "../../../scripts/check/check-codeql-ratchet.mjs";
 
 type RatchetVerdict = { regressed: boolean; improved: boolean };
@@ -30,6 +32,7 @@ function makeAlert(
     severity?: string;
     securitySeverity?: string;
     dismissedReason?: string | null;
+    path?: string;
   } = {}
 ) {
   return {
@@ -52,6 +55,9 @@ function makeAlert(
     most_recent_instance: {
       ref: "refs/heads/main",
       state: overrides.state ?? "open",
+      ...(overrides.path === undefined
+        ? {}
+        : { location: { path: overrides.path, start_line: 1, end_line: 1 } }),
     },
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-02T00:00:00Z",
@@ -324,4 +330,103 @@ test("evaluateCodeqlRatchet: strict integer comparison — any increase regresse
   assert.equal(evaluate(6, 5).regressed, true);
   assert.equal(evaluate(5, 5).regressed, false);
   assert.equal(evaluate(4, 5).regressed, false);
+});
+
+// ---------------------------------------------------------------------------
+// Escopo de produção (isProductionPath) — o ratchet conta só superfície de runtime
+// ---------------------------------------------------------------------------
+
+test("isProductionPath: prefixos de runtime contam como produção", () => {
+  for (const path of [
+    "src/lib/db/core.ts",
+    "src/mitm/inspector/httpProxyServer.ts",
+    "open-sse/services/combo.ts",
+    "bin/omniroute.mjs",
+    "electron/main.ts",
+  ]) {
+    assert.equal(isProductionPath(path), true, `${path} deve contar como produção`);
+  }
+});
+
+test("isProductionPath: testes, scripts, docker, docs e o plugin do OpenCode ficam fora", () => {
+  for (const path of [
+    "tests/unit/build/check-codeql-ratchet.test.ts",
+    "scripts/check/check-codeql-ratchet.mjs",
+    "docker/devin-bridge/network-guard/proxy.mjs",
+    "docs/architecture/QUALITY_GATES.md",
+    "@omniroute/opencode-plugin/src/index.ts",
+    "config/quality/quality-baseline.json",
+  ]) {
+    assert.equal(isProductionPath(path), false, `${path} deve ficar fora do ratchet`);
+  }
+});
+
+test("isProductionPath: path ausente ou vazio conta como produção (fail-open)", () => {
+  assert.equal(isProductionPath(undefined), true);
+  assert.equal(isProductionPath(null), true);
+  assert.equal(isProductionPath(""), true);
+  assert.equal(isProductionPath(42 as unknown as string), true);
+});
+
+test("PRODUCTION_PATH_PREFIXES: é a allowlist de runtime, congelada", () => {
+  assert.deepEqual([...PRODUCTION_PATH_PREFIXES], ["src/", "open-sse/", "bin/", "electron/"]);
+  assert.equal(Object.isFrozen(PRODUCTION_PATH_PREFIXES), true);
+});
+
+test("parseCodeQLAlerts: alerta de produção conta no ratchet", () => {
+  const result = parseCodeQLAlerts([makeAlert({ path: "src/lib/db/core.ts" })]);
+  assert.equal(result.alertCount, 1);
+  assert.equal(result.excludedCount, 0);
+});
+
+test("parseCodeQLAlerts: alerta fora de produção é excluído do ratchet mas contabilizado", () => {
+  const result = parseCodeQLAlerts([
+    makeAlert({ number: 1, path: "tests/unit/foo.test.ts" }),
+    makeAlert({ number: 2, path: "scripts/check/bar.mjs" }),
+    makeAlert({ number: 3, path: "docker/devin-bridge/network-guard/proxy.mjs" }),
+    makeAlert({ number: 4, path: "@omniroute/opencode-plugin/src/index.ts" }),
+  ]);
+  assert.equal(result.alertCount, 0, "nenhum alerta de teste/ferramenta entra no ratchet");
+  assert.equal(result.excludedCount, 4, "os 4 continuam visíveis no relatório");
+  assert.deepEqual(result.byExcludedPrefix, {
+    tests: 1,
+    scripts: 1,
+    docker: 1,
+    "@omniroute": 1,
+  });
+});
+
+test("parseCodeQLAlerts: mix produção + não-produção — só produção entra no ratchet", () => {
+  const result = parseCodeQLAlerts([
+    makeAlert({ number: 1, path: "src/app/api/v1/chat/route.ts" }),
+    makeAlert({ number: 2, path: "tests/unit/chat.test.ts" }),
+    makeAlert({ number: 3, path: "open-sse/handlers/chatCore.ts" }),
+    makeAlert({ number: 4, path: "scripts/build/pack.mjs" }),
+    makeAlert({ number: 5, path: "bin/cli/program.mjs" }),
+  ]);
+  assert.equal(result.alertCount, 3);
+  assert.equal(result.excludedCount, 2);
+  assert.equal(result.bySeverity.high, 3);
+  assert.equal(result.byRule["js/sql-injection"], 3);
+});
+
+test("parseCodeQLAlerts: dismissed fora de produção não vira excluído (regra #14 primeiro)", () => {
+  const result = parseCodeQLAlerts([
+    makeAlert({
+      path: "tests/unit/foo.test.ts",
+      state: "dismissed",
+      dismissedReason: "used in tests",
+    }),
+  ]);
+  assert.equal(result.alertCount, 0);
+  assert.equal(result.excludedCount, 0, "alerta dismissed é ignorado antes do filtro de escopo");
+});
+
+test("parseCodeQLAlerts: input inválido zera também os contadores de exclusão", () => {
+  for (const input of [null, undefined, {}, "nope"]) {
+    const result = parseCodeQLAlerts(input as never);
+    assert.equal(result.alertCount, 0);
+    assert.equal(result.excludedCount, 0);
+    assert.deepEqual(result.byExcludedPrefix, {});
+  }
 });

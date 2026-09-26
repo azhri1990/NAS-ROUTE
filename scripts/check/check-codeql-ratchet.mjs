@@ -18,6 +18,15 @@
 // SKIP gracioso que SAI 0 — nunca bloqueia o build por falta de infraestrutura.
 // Direction: down (a contagem só pode CAIR). Suporta --update para ratchetar.
 //
+// ESCOPO: a contagem MEDIDA cobre só a superfície de runtime
+// (PRODUCTION_PATH_PREFIXES = src/, open-sse/, bin/, electron/). Alertas em
+// tests/, scripts/, docker/ e no workspace do plugin do OpenCode são
+// contabilizados e reportados à parte, fora do ratchet — ver o bloco de
+// constants abaixo. Motivo: a análise de 2026-09 abriu 473 alertas de uma vez
+// (264 arquivos), majoritariamente em superfície não-publicada; ratchetear o
+// total inflado bloqueia por dívida preexistente de teste/ferramenta, não por
+// regressão de runtime.
+//
 // Uso:
 //   node scripts/check/check-codeql-ratchet.mjs
 //   node scripts/check/check-codeql-ratchet.mjs --json    # imprime array de alertas
@@ -45,6 +54,39 @@ const BASELINE_PATH = path.resolve(
 );
 
 // ---------------------------------------------------------------------------
+// Escopo de produção (o ratchet conta só superfície de runtime)
+//
+// A primeira analise CodeQL de escala do repo (2026-09) abriu 473 alertas de
+// uma vez, espalhados por 264 arquivos — a maioria em superficie que NAO faz
+// parte do runtime publicado (tests/, scripts/, docker/, o workspace do plugin
+// do OpenCode). Ratchetear esse total inflado faz o gate bloquear por
+// divida preexistente de ferramenta/teste, e nao por regressao.
+//
+// O ratchet passou a contar apenas prefixos de superficie PROD (abaixo).
+// Alertas fora desse escopo sao contados e reportados como "excluidos", nunca
+// descartados em silencio. Allowlist (e nao denylist): um prefixo novo
+// (ex.: um novo workspace) entra no ratchet so por revisao explicita.
+//
+// Hard Rule #14 nao muda: alertas dismissed nunca contam, em qualquer escopo.
+// ---------------------------------------------------------------------------
+
+/** Prefixos de superficie de runtime que o ratchet acompanha. */
+export const PRODUCTION_PATH_PREFIXES = Object.freeze(["src/", "open-sse/", "bin/", "electron/"]);
+
+/**
+ * true quando o path do alerta pertence a superficie de produção.
+ * Path ausente/vazio conta como produção (fail-open: uma mudança no shape da
+ * API do GitHub nunca pode zerar o ratchet em silencio).
+ *
+ * @param {string|undefined|null} filePath
+ * @returns {boolean}
+ */
+export function isProductionPath(filePath) {
+  if (typeof filePath !== "string" || filePath.length === 0) return true;
+  return PRODUCTION_PATH_PREFIXES.some((prefix) => filePath.startsWith(prefix));
+}
+
+// ---------------------------------------------------------------------------
 // Pure parsing function (exported for tests)
 // ---------------------------------------------------------------------------
 
@@ -66,17 +108,29 @@ const BASELINE_PATH = path.resolve(
  * Filtramos por state="open" E tool.name contendo "CodeQL" (case-insensitive).
  * Alertas de outras ferramentas (ex: Semgrep) são ignorados.
  *
+ * Escopo: só alertas em superficie de produção (ver isProductionPath) entram
+ * na contagem do ratchet. Os de fora são acumulados em `excludedCount` /
+ * `byExcludedPrefix` para o relatório — contabilizados, nunca escondidos.
+ *
  * @param {Array|null} alerts - Array de alertas da API GitHub
- * @returns {{ alertCount: number, bySeverity: Record<string, number>, byRule: Record<string, number> }}
+ * @returns {{ alertCount: number, bySeverity: Record<string, number>, byRule: Record<string, number>, excludedCount: number, byExcludedPrefix: Record<string, number> }}
  */
 export function parseCodeQLAlerts(alerts) {
   if (!Array.isArray(alerts)) {
-    return { alertCount: 0, bySeverity: {}, byRule: {} };
+    return {
+      alertCount: 0,
+      bySeverity: {},
+      byRule: {},
+      excludedCount: 0,
+      byExcludedPrefix: {},
+    };
   }
 
   let alertCount = 0;
+  let excludedCount = 0;
   const bySeverity = {};
   const byRule = {};
+  const byExcludedPrefix = {};
 
   for (const alert of alerts) {
     // Ignorar alertas não-CodeQL (outras ferramentas de code scanning)
@@ -88,6 +142,16 @@ export function parseCodeQLAlerts(alerts) {
 
     // Só alertas abertos
     if (alert.state !== "open") continue;
+
+    // Escopo de produção: fora dos prefixos de runtime o alerta é contabilizado
+    // como excluído (reportado), nunca contado no ratchet.
+    const filePath = alert?.most_recent_instance?.location?.path;
+    if (!isProductionPath(filePath)) {
+      excludedCount++;
+      const topSegment = filePath.includes("/") ? filePath.split("/")[0] : "(root)";
+      byExcludedPrefix[topSegment] = (byExcludedPrefix[topSegment] ?? 0) + 1;
+      continue;
+    }
 
     alertCount++;
 
@@ -104,7 +168,7 @@ export function parseCodeQLAlerts(alerts) {
     byRule[ruleId] = (byRule[ruleId] ?? 0) + 1;
   }
 
-  return { alertCount, bySeverity, byRule };
+  return { alertCount, bySeverity, byRule, excludedCount, byExcludedPrefix };
 }
 
 /**
@@ -396,7 +460,8 @@ function main() {
     return;
   }
 
-  const { alertCount, bySeverity, byRule } = parseCodeQLAlerts(result);
+  const { alertCount, bySeverity, byRule, excludedCount, byExcludedPrefix } =
+    parseCodeQLAlerts(result);
 
   // Emitir em formato KEY=VALUE para o coletor de métricas (collect-metrics.mjs)
   console.log(`codeqlAlerts=${alertCount}`);
@@ -414,11 +479,22 @@ function main() {
         .join(", ") || "nenhum";
 
     process.stderr.write(
-      `[codeql-ratchet] Alertas CodeQL abertos (não-dismissed): ${alertCount}\n`
+      `[codeql-ratchet] Alertas CodeQL abertos (não-dismissed) em superfície de produção: ${alertCount}\n`
     );
     if (alertCount > 0) {
       process.stderr.write(`[codeql-ratchet]   Por severidade: ${severitySummary}\n`);
       process.stderr.write(`[codeql-ratchet]   Top regras: ${topRules}\n`);
+    }
+    if (excludedCount > 0) {
+      const excludedSummary =
+        Object.entries(byExcludedPrefix)
+          .sort(([, a], [, b]) => b - a)
+          .map(([p, n]) => `${p}(${n})`)
+          .join(", ") || "nenhum";
+      process.stderr.write(
+        `[codeql-ratchet]   Fora do escopo de produção (contados à parte, fora do ratchet): ${excludedCount} — ${excludedSummary}\n` +
+          "  → Para incluir uma superfície no ratchet, revise PRODUCTION_PATH_PREFIXES.\n"
+      );
     }
   }
 

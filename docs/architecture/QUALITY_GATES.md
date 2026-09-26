@@ -88,16 +88,16 @@ Runs on every PR to `main`. Blocks merge on failure.
 
 Runs after `test-coverage`. Blocks merge on failure.
 
-| Script                       | Validates                                                                                                                      | Blocking                  |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
-| `quality:collect`            | Emits `quality-metrics.json` (ESLint warning count, coverage from merged shard report)                                         | Yes (upstream of ratchet) |
-| `quality:ratchet`            | Each metric in `quality-baseline.json` has not regressed (ESLint warnings ≤ baseline; coverage ≥ baseline)                     | Yes                       |
-| `check:duplication`          | Code duplication (jscpd@4) does not exceed baseline in `quality-baseline.json`                                                 | Yes                       |
-| `check:complexity`           | File-level cyclomatic complexity does not exceed the cap (core ESLint `complexity` + `max-lines-per-function`)                 | Yes                       |
-| `check:cognitive-complexity` | Cognitive complexity ratchet (`eslint-plugin-sonarjs`) — separate ESLint pass; mergeable with `check:complexity` (see Backlog) | Yes                       |
-| `check:dead-code`            | Unused exports / files ratchet (knip) does not regress vs baseline                                                             | Yes                       |
-| `check:type-coverage`        | Percent-typed ratchet (`type-coverage`) does not regress; largely subsumes `typecheck:noimplicit:core`                         | Yes                       |
-| `check:codeql-ratchet`       | Open CodeQL alert count does not regress (reads via `gh api`; graceful-skip without token)                                     | Yes                       |
+| Script                       | Validates                                                                                                                                                                                                           | Blocking                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `quality:collect`            | Emits `quality-metrics.json` (ESLint warning count, coverage from merged shard report)                                                                                                                              | Yes (upstream of ratchet) |
+| `quality:ratchet`            | Each metric in `quality-baseline.json` has not regressed (ESLint warnings ≤ baseline; coverage ≥ baseline)                                                                                                          | Yes                       |
+| `check:duplication`          | Code duplication (jscpd@4) does not exceed baseline in `quality-baseline.json`                                                                                                                                      | Yes                       |
+| `check:complexity`           | File-level cyclomatic complexity does not exceed the cap (core ESLint `complexity` + `max-lines-per-function`)                                                                                                      | Yes                       |
+| `check:cognitive-complexity` | Cognitive complexity ratchet (`eslint-plugin-sonarjs`) — separate ESLint pass; mergeable with `check:complexity` (see Backlog)                                                                                      | Yes                       |
+| `check:dead-code`            | Unused exports / files ratchet (knip) does not regress vs baseline                                                                                                                                                  | Yes                       |
+| `check:type-coverage`        | Percent-typed ratchet (`type-coverage`) does not regress; largely subsumes `typecheck:noimplicit:core`                                                                                                              | Yes                       |
+| `check:codeql-ratchet`       | Open CodeQL alert count in runtime paths (`src/`, `open-sse/`, `bin/`, `electron/`) does not regress; out-of-scope alerts are counted and reported, not ratcheted (reads via `gh api`; graceful-skip without token) | Yes                       |
 
 ### Job: `quality-extended`
 
