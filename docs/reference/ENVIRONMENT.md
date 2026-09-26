@@ -1633,3 +1633,11 @@ Used by `open-sse/services/combo.ts` and `src/lib/quota/quotaScheduler.ts` for p
 | Variable                          | Default  | Source File                       | Description                                                                                                      |
 | --------------------------------- | -------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `OMNIROUTE_QUOTA_AWARE_ROUTING`   | `0`      | `open-sse/services/combo.ts`      | When `1`, skip connections whose per-window token budget (`rateLimitOverrides.tpm`, table `provider_quota_state`) cannot afford the estimated request cost before dispatch. Fail-open when no budget configured. |
+
+### Local corpus index cache
+
+Used by `src/lib/localCorpus/configured.ts` to bound the in-process LRU cache of local-corpus indexes. Higher values trade memory for fewer re-indexes; values below 1 are clamped to 1.
+
+| Variable                       | Default | Source File                        | Description                                                                                     |
+| ------------------------------ | ------- | ---------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `OMNIROUTE_CORPUS_CACHE_SIZE`  | `5`     | `src/lib/localCorpus/configured.ts` | Max number of local-corpus indexes kept in the in-process LRU cache. Clamped to a minimum of 1. |

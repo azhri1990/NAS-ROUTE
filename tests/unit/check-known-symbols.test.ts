@@ -128,12 +128,16 @@ test("combo dispatch registry (runtime import) covers the canonical strategy set
 // ───────────────────────────────────────────────────────────────────────────
 
 test("extractExecutorAliases parses quoted and bare keys from the executors literal", () => {
+  // Anchor must match the real declaration in open-sse/executors/index.ts:30 —
+  // `const lazyExecutors`, introduced by the lazy-registration refactor (#11220).
+  // The fixture previously used `const executors`, so the extractor never found
+  // its anchor and the gate failed for a shape the codebase no longer has.
   const src = [
     'import { Foo } from "./foo.ts";',
-    "const executors = {",
-    "  antigravity: new Foo(),",
-    "  agy: new Foo(), // Alias",
-    '  "amazon-q": new Foo("amazon-q"),',
+    "const lazyExecutors: Record<string, () => Promise<BaseExecutor>> = {",
+    "  antigravity: async () => new Foo(),",
+    "  agy: async () => new Foo(), // Alias",
+    '  "amazon-q": async () => new Foo("amazon-q"),',
     "};",
     "export function getExecutor() {}",
   ].join("\n");

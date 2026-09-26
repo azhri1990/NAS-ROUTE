@@ -218,6 +218,15 @@ export function isPrivateLanHost(hostHeader: string | null): boolean {
  *   /api/system/version — GET reads package.json + npm registry; only POST
  *   triggers the auto-update flow (spawns git checkout + npm install + pm2).
  *   Hard Rules #15/#17 still apply to POST.
+ *   /api/tunnels/cloudflared — GET only reads tunnel status; POST runs
+ *   startCloudflaredTunnel()/stopCloudflaredTunnel(), which spawn the binary,
+ *   so Hard Rules #15/#17 still apply to POST.
+ *
+ * Adding an entry here is a security change: it makes a spawn-capable route
+ * reachable from non-loopback clients for GET/HEAD/OPTIONS. The exact set is
+ * pinned by tests/unit/authz/route-guard-version-get-exemption.test.ts, so a
+ * new exemption fails that gate until it is deliberately added here with its
+ * justification above.
  */
 export const LOCAL_ONLY_API_GET_EXEMPTIONS: ReadonlySet<string> = new Set([
   "/api/system/version",

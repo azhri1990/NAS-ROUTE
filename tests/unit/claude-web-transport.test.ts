@@ -407,7 +407,11 @@ describe("Claude Web executor transport orchestration", () => {
     assert.match(executorSource, /export class ClaudeWebExecutor extends BaseExecutor/);
     assert.doesNotMatch(executorSource, /claudeTurnstileSolver|getCfClearanceToken|tryBackedChat/);
     assert.doesNotMatch(indexSource, /ClaudeWebWithAutoRefresh/);
-    assert.match(indexSource, /"claude-web": new ClaudeWebExecutor\(\)/);
-    assert.match(indexSource, /"cw-web": new ClaudeWebExecutor\(\)/);
+    // Registration is a lazy loader since the lazy-registration refactor (#11220), so
+    // these assert the alias is still wired to the real module rather than matching the
+    // old eager `new ClaudeWebExecutor()` shape. They keep their guard value: renaming
+    // the module or dropping either alias still fails.
+    assert.match(indexSource, /"claude-web":\s*\(\)\s*=>\s*import\("\.\/claude-web\.ts"\)/);
+    assert.match(indexSource, /"cw-web":\s*\(\)\s*=>\s*import\("\.\/claude-web\.ts"\)/);
   });
 });

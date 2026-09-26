@@ -85,13 +85,22 @@ describe("isLocalOnlyPath — GET exemption for /api/system/version (#5083)", ()
     assert.equal(isLocalOnlyPath("/api/db-backups/exportAll", "GET"), true);
   });
 
-  // ── EXEMPTION SET IS EXPORTED AND CONTAINS EXACTLY /api/system/version ───
+  // ── EXEMPTION SET IS EXPORTED AND PINNED TO THE REVIEWED EXEMPTIONS ───
 
   test("LOCAL_ONLY_API_GET_EXEMPTIONS contains /api/system/version", () => {
     assert.ok(LOCAL_ONLY_API_GET_EXEMPTIONS.has("/api/system/version"));
   });
 
-  test("LOCAL_ONLY_API_GET_EXEMPTIONS has exactly 1 entry", () => {
-    assert.equal(LOCAL_ONLY_API_GET_EXEMPTIONS.size, 1);
+  test("LOCAL_ONLY_API_GET_EXEMPTIONS contains only the reviewed exemptions", () => {
+    // Pin the exact reviewed set rather than a bare size. `size === 1` had gone stale
+    // when /api/tunnels/cloudflared was added (GET reads tunnel status; POST spawns the
+    // binary) without this gate noticing. Pinning the contents keeps the original
+    // intent — a NEW exemption must fail here so it cannot be slipped in unreviewed —
+    // while tolerating entries that were deliberately reviewed and documented in the
+    // LOCAL_ONLY_API_GET_EXEMPTIONS doc comment.
+    assert.deepEqual([...LOCAL_ONLY_API_GET_EXEMPTIONS].sort(), [
+      "/api/system/version",
+      "/api/tunnels/cloudflared",
+    ]);
   });
 });
