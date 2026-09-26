@@ -14,6 +14,25 @@
   `excludeTosAvoid` guard (default `false`) is available separately for contractual risk. See
   `docs/routing/STRICT_ZERO_COST.md`.
 
+### 🐛 Bug Fixes
+
+- **deps: 10 supply-chain advisories cleared** — `overrides` refreshed for `@xmldom/xmldom`
+  (0.9.12, 13 advisories), `fast-uri`, `hono`, `adm-zip`, `browserslist`,
+  `baseline-browser-mapping`, `@humanfs/node`, `joi`, `csv-parse`, `qs` and the five transitive
+  `js-yaml@4.3.1` copies. `osv-scanner` on `package-lock.json` reports 0 findings (was 32, gate
+  baseline 22); `npm audit` reports 0 vulnerabilities.
+
+### 📝 Maintenance
+
+- **ci: `check:known-symbols` executor conformance** — the gate called the now-async
+  `getExecutor()` synchronously, so every alias looked like a non-conforming executor (142 false
+  failures since the lazy executor registry landed in #11220). Resolution is now awaited, and an
+  alias whose lazy loader rejects is reported instead of aborting the run.
+- **ci: `stryker.conf.json` test-coverage drift** — `tests/unit/authz/route-guard-tunnel-processes-local-only.test.ts`
+  and `tests/unit/universal-quota-aware-routing.test.ts` are registered in `tap.testFiles`, so
+  their mutant kills count again for `src/server/authz/routeGuard.ts` and the `combo/quotaScoring`
+  + `combo/quotaStrategies` leaves.
+
 ---
 
 ## [3.8.51] — TBD

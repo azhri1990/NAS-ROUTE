@@ -441,18 +441,18 @@
     "sharp": "^0.35.4",
     "postcss": "^8.5.18",
     "ip-address": "^10.3.1",
-    "qs": "^6.15.2",
+    "qs": "^6.16.0",
     "uuid": "^14.0.0",
     "form-data": "^4.0.6",
     "vite": "^8.0.16",
     "protobufjs": "^7.6.5",
     "@babel/core": "^7.29.6",
-    "hono": "^4.12.34",
+    "hono": "^4.13.9",
     "@hono/node-server": "^2.0.5",
-    "fast-uri": "^3.1.5",
+    "fast-uri": "^3.1.6",
     "body-parser": "^2.3.0",
     "@yarnpkg/parsers": {
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2"
     },
     "jsdom": {
       "undici": "^7.29.0"
@@ -463,7 +463,13 @@
     "concurrently": {
       "shell-quote": "^1.9.0"
     },
-    "adm-zip": "^0.6.0",
+    "adm-zip": "^0.6.1",
+    "csv-parse": "^7.0.2",
+    "@xmldom/xmldom": "^0.9.12",
+    "@humanfs/node": "^0.16.8",
+    "browserslist": "^4.28.7",
+    "baseline-browser-mapping": "^2.11.0",
+    "joi": "^18.2.5",
     "promptfoo": {
       "js-yaml": "^5.2.2",
       "undici": "^7.29.0"
@@ -485,16 +491,19 @@
       }
     },
     "@apidevtools/json-schema-ref-parser": {
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2"
     },
     "@eslint/eslintrc": {
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2"
     },
     "lockfile-lint": {
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2"
+    },
+    "cosmiconfig": {
+      "js-yaml": "^4.3.2"
     },
     "xmlbuilder2": {
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2"
     },
     "nanoid": "^3.3.17",
     "monaco-editor": {
