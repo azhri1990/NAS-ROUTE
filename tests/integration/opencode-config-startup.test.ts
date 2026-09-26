@@ -6,8 +6,24 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { after, it } from "node:test";
 
-const OPENCODE_VERSION = "1.18.8";
+// Must match the exact "opencode-ai" pin in package.json. CI installed 1.18.21 while
+// this literal still said 1.18.8, so the version assertion below failed against a
+// perfectly healthy install. Keep the literal (asserting the *installed* binary is the
+// pinned version is the point) and add the cross-check right after it, so a future
+// dependency bump fails here with a clear message instead of as a mystery version
+// mismatch.
+const OPENCODE_VERSION = "1.18.21";
 const require = createRequire(import.meta.url);
+const pkg = require("../../package.json") as {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+};
+const declaredOpencodeAi = pkg.dependencies?.["opencode-ai"] ?? pkg.devDependencies?.["opencode-ai"];
+assert.strictEqual(
+  declaredOpencodeAi,
+  OPENCODE_VERSION,
+  `OPENCODE_VERSION (${OPENCODE_VERSION}) must match the package.json opencode-ai pin (${declaredOpencodeAi})`
+);
 const testHome = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-opencode-8849-"));
 const originalHome = process.env.HOME;
 const originalFetch = globalThis.fetch;
