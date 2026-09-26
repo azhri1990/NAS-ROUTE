@@ -346,10 +346,20 @@ test("reasoning routing filters incompatible combo targets and rejects an empty 
   await reasoningRulesDb.deleteReasoningRoutingRule(
     (await reasoningRulesDb.getReasoningRoutingRules())[0].id
   );
+  // The single target must be *definitively* non-reasoning so
+  // capabilityFor() reports "unsupported" and the filter is guaranteed to empty the
+  // combo. This used to be antigravity/gemini-3-pro, whose resolved capability is
+  // supportsThinking: null ("could not be verified") -- that is reported as
+  // "unknown", not "unsupported", so the target was kept and the combo executed,
+  // returning 503 (no available connection) instead of the 400 this asserts. It was
+  // also backwards as a premise: gemini-3-pro is a thinking model, while the target
+  // kept in the mixed combo above (gpt-4.1-mini) has no thinking mode at all.
+  // openai/gpt-4o-mini resolves to supportsThinking: false, which is exactly the
+  // "unsupported" case this contract is about.
   const incompatibleCombo = await combosDb.createCombo({
     name: "incompatible-reasoning-combo",
     strategy: "priority",
-    models: ["antigravity/gemini-3-pro"],
+    models: ["openai/gpt-4o-mini"],
   });
   await reasoningRulesDb.createReasoningRoutingRule({
     name: "Empty combo target",
