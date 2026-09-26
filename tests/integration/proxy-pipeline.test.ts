@@ -36,6 +36,7 @@ function readOpenSse(relPath) {
 describe("Chat Pipeline — handleSingleModelChat decomposition", () => {
   const src = readSrc("sse/handlers/chat.ts");
   const helpersSrc = readSrc("sse/handlers/chatHelpers.ts");
+  const dispatchSrc = readSrc("sse/handlers/chatDispatch.ts");
   const coreSrc = readOpenSse("handlers/chatCore.ts");
 
   it("should define resolveModelOrError helper", () => {
@@ -67,7 +68,13 @@ describe("Chat Pipeline — handleSingleModelChat decomposition", () => {
   });
 
   it("handleSingleModelChat should use executeChatWithBreaker", () => {
-    assert.match(src, /executeChatWithBreaker\(/);
+    // The breaker-wrapped upstream dispatch moved out of the frozen god-file into
+    // the chatDispatch seam (so chat.ts stops growing under check:file-size). What
+    // matters is that the per-model path still goes through the breaker: chat.ts
+    // calls the seam, and the seam is what calls executeChatWithBreaker.
+    assert.match(src, /dispatchChatWithAffinityEviction\(/);
+    assert.ok(dispatchSrc, "sse/handlers/chatDispatch.ts should exist");
+    assert.match(dispatchSrc, /executeChatWithBreaker\(\{/);
   });
 
   it("chatCore should record cost for both non-streaming and streaming responses", () => {
