@@ -2294,7 +2294,14 @@ async function handleSingleModelChat(
             }
           );
 
-      if (shouldFallback) {
+      // A pinned combo step means THAT account, so it must not rotate to a different
+      // one here: the operator already declared the fallback chain as separate steps
+      // (`connectionId` per step), and combo.ts only advances to the next step when
+      // this target returns. Rotating instead made one step answer on someone else's
+      // account while the call log still attributed the answer to the pinned step
+      // (combo-routing-e2e "different fixed accounts"). Every sibling fallback branch
+      // above already carries this guard; this one was missing it.
+      if (shouldFallback && !hasForcedConnection) {
         if (Number.isFinite(cooldownMs) && cooldownMs > 0) {
           lastCooldownMs = cooldownMs;
           requestRetryLastCooldownMs = cooldownMs;
