@@ -555,12 +555,17 @@ test("resilience API only exposes configuration, not runtime breaker state", asy
   const { response, json } = await getJson(`${app.baseUrl}/api/resilience`);
 
   assert.equal(response.status, 200);
+  // The guard is "configuration only, no runtime breaker state" — so the exact
+  // key set is the contract. providerQuotaOverrides is a real shipped setting
+  // (src/lib/resilience/settings.ts, echoed by GET /api/resilience); it was
+  // simply missing here, which pinned the API surface to a stale list.
   assert.deepEqual(Object.keys(json).sort(), [
     "comboCooldownWait",
     "connectionCooldown",
     "legacy",
     "providerBreaker",
     "providerCooldown",
+    "providerQuotaOverrides",
     "quotaShareConcurrencyLimit",
     "requestQueue",
     "waitForCooldown",

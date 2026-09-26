@@ -175,6 +175,10 @@ test("integration: proxy registry full flow works and enforces safe delete", asy
     levelId: "openai",
     provider: "openai",
   });
+  // logProxyEvent only enqueues for background batch persistence (1 s timer, or
+  // 100 entries). Proxy health stats are an SQL aggregate over proxy_logs, so
+  // without this flush the query races the batch timer and reads zero rows.
+  proxyLogger.flushProxyLogsSync();
 
   const healthRes = await proxyHealthRoute.GET(
     new Request("http://localhost/api/settings/proxies/health?hours=24")
