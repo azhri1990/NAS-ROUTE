@@ -1,5 +1,3 @@
-import { after } from "next/server";
-
 import { getUnifiedModelsResponse } from "./catalog";
 
 /**
@@ -31,13 +29,12 @@ export async function HEAD() {
 
 /**
  * GET /v1/models - OpenAI compatible models list
+ *
+ * The catalog cache owns its own background-refresh scheduling (a `setTimeout(…, 0)`
+ * deferral in catalogCache.ts, #9199). This route must not pass a refresh policy:
+ * getUnifiedModelsResponse takes (request, corsHeaders) only, so a third argument
+ * would be dropped at runtime and read as wired while scheduling nothing.
  */
 export async function GET(request: Request) {
-  return getUnifiedModelsResponse(
-    request,
-    {},
-    {
-      scheduleBackgroundRefresh: (task) => after(task),
-    }
-  );
+  return getUnifiedModelsResponse(request, {});
 }

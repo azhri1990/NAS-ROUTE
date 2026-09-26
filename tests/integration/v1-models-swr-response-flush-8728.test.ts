@@ -84,7 +84,22 @@ test.after(() => {
   fs.rmSync(CACHE_DATA_DIR, { recursive: true, force: true });
 });
 
-test("the /v1/models route wires Next after() as its response-flush-safe scheduler", () => {
+/**
+ * Contract note: #8728 originally shipped an injectable `CatalogCachePolicy` (a
+ * per-call SWR window accessor + a Next `after()` refresh scheduler) and an
+ * unbounded `CATALOG_STALE_WHILE_REVALIDATE_MS`. #9199 deliberately replaced
+ * both: the window is a fixed 30 s constant and the refresh is deferred
+ * internally by `setTimeout(…, 0)`, so no caller supplies a policy and nothing
+ * outside a Next request scope can invoke `after()`. An unbounded window let a
+ * refresh that kept failing pin an ancient catalog forever.
+ *
+ * These assertions used to pin the removed API and the `after()` wiring, which
+ * #9199 deleted — they were the reason this file stayed red. They now guard the
+ * shipped contract *and* the failure mode that produced the red: a caller
+ * passing a scheduler that `resolveCachedCatalogResponse` silently ignores,
+ * which looks wired but schedules nothing.
+ */
+test("the /v1/models catalog defers its background refresh itself, with no dead scheduler arg", () => {
   const routeSource = fs.readFileSync(
     path.join(REPO_ROOT, "src/app/api/v1/models/route.ts"),
     "utf8"
@@ -93,10 +108,18 @@ test("the /v1/models route wires Next after() as its response-flush-safe schedul
     path.join(REPO_ROOT, "src/app/api/v1/models/catalogCache.ts"),
     "utf8"
   );
-  assert.match(routeSource, /import\s+\{\s*after\s*\}\s+from\s+["']next\/server["']/);
-  assert.match(routeSource, /scheduleBackgroundRefresh:\s*\(task\)\s*=>\s*after\(task\)/);
-  assert.match(cacheSource, /import\s+\{\s*after\s*\}\s+from\s+["']next\/server["']/);
-  assert.match(cacheSource, /function defaultBackgroundRefreshScheduler[\s\S]*?after\(task\)/);
+
+  // getUnifiedModelsResponse(request, corsHeaders) takes exactly two arguments;
+  // a third "policy" object was silently dropped at runtime.
+  assert.match(routeSource, /getUnifiedModelsResponse\(\s*request,\s*\{\s*\}\s*\)/);
+  assert.doesNotMatch(routeSource, /scheduleBackgroundRefresh/);
+  assert.doesNotMatch(routeSource, /next\/server/);
+
+  // The deferral that keeps the stale body ahead of the blocking rebuild lives in
+  // the cache module, against a bounded window.
+  assert.match(cacheSource, /now - cached\.expiresAt <= CATALOG_STALE_WHILE_REVALIDATE_MS/);
+  assert.match(cacheSource, /function scheduleBackgroundRefresh\([\s\S]*?setTimeout\(/);
+  assert.match(cacheSource, /CATALOG_STALE_WHILE_REVALIDATE_MS = 30_000/);
 });
 
 test("an external client receives the stale body before synchronous refresh finishes blocking", async (t) => {
@@ -108,10 +131,14 @@ test("an external client receives the stale body before synchronous refresh fini
   let responseFinishedAt = 0;
   let refreshStartedAt = 0;
   let refreshFinishedAt = 0;
-  let scheduledCount = 0;
 
   const server = http.createServer(async (incoming, outgoing) => {
     const url = `http://127.0.0.1${incoming.url || "/"}`;
+    // Recorded on every response so the refresh ordering can be checked without
+    // injecting a scheduler the module no longer accepts.
+    outgoing.once("finish", () => {
+      responseFinishedAt = Date.now();
+    });
     const response = await catalogCache.resolveCachedCatalogResponse(
       new Request(url),
       { corsHeaders: {}, diagnosticHeaders: {} },
@@ -128,18 +155,6 @@ test("an external client receives the stale body before synchronous refresh fini
           status: 200,
           cacheTTL: 60_000,
         };
-      },
-      {
-        getStaleWhileRevalidateMs: () => Number.POSITIVE_INFINITY,
-        scheduleBackgroundRefresh: (task) => {
-          scheduledCount++;
-          outgoing.once("finish", () => {
-            responseFinishedAt = Date.now();
-            setImmediate(() => {
-              void task();
-            });
-          });
-        },
       }
     );
 
@@ -165,7 +180,7 @@ test("an external client receives the stale body before synchronous refresh fini
     await catalogCache.__flushCatalogBackgroundRefreshForTest();
 
     assert.equal(stale.body, "old");
-    assert.equal(scheduledCount, 1);
+    assert.equal(buildCount, 2, "the stale request must trigger exactly one background rebuild");
     assert.ok(refreshStartedAt >= responseFinishedAt, "refresh must start after response finish");
     assert.ok(
       stale.receivedAt < refreshFinishedAt,
