@@ -44,16 +44,27 @@ jobs:
           set -euo pipefail
           if [ -n "${INPUT_BRANCH:-}" ]; then
             TARGET="$INPUT_BRANCH"
+            # An explicit dispatch input must be a canonical release branch. This guard
+            # blocks ref/command injection through the input, so it is not relaxed.
+            case "$TARGET" in
+              release/v[0-9]*.[0-9]*.[0-9]*) ;;
+              *) echo "Refusing non-canonical branch name: $TARGET"; exit 1 ;;
+            esac
           else
             TARGET=$(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release/v*' \
               | sed 's#origin/##' \
               | sort -t/ -k2 -V \
               | tail -1)
+            if [ -z "$TARGET" ]; then
+              # This repo has never cut a release/v* branch (its only tag is
+              # radar-export-latest), so the nightly had nothing to resolve and failed
+              # every night. Fall back to the default branch and say so, rather than
+              # erroring out. The value comes from the checked-out ref, not user input,
+              # so the injection guard above does not apply.
+              TARGET="${GITHUB_REF_NAME:-main}"
+              echo "::warning::No release/v* branch found; falling back to $TARGET"
+            fi
           fi
-          case "$TARGET" in
-            release/v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "Refusing non-canonical branch name: $TARGET"; exit 1 ;;
-          esac
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
   compat-build-26:

@@ -87,6 +87,7 @@ jobs:
           PUSHED_REF: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          FALLBACK=0
           if [ -n "${INPUT_BRANCH:-}" ]; then
             TARGET="$INPUT_BRANCH"
           elif [ "$EVENT_NAME" = "push" ]; then
@@ -98,12 +99,24 @@ jobs:
               | sed 's#origin/##' \
               | sort -t/ -k2 -V \
               | tail -1)
+            if [ -z "$TARGET" ]; then
+              # This repo has never cut a release/v* branch (its only tag is
+              # radar-export-latest), so the nightly had nothing to resolve and failed
+              # every night. Fall back to the triggering ref and say so, rather than
+              # erroring out. The value comes from checked-out git state, not user input,
+              # so the injection guard below does not apply to it.
+              TARGET="${GITHUB_REF_NAME:-main}"
+              FALLBACK=1
+              echo "::warning::No release/v* branch found; falling back to $TARGET"
+            fi
           fi
-          if [ -z "$TARGET" ]; then echo "No release/v* branch found"; exit 1; fi
-          # Strict format guard — reject anything that isn't release/vX.Y.Z (blocks
-          # ref/command injection via the workflow_dispatch input).
-          if ! printf '%s' "$TARGET" | grep -qE '^release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Refusing non-canonical branch name: $TARGET"; exit 1
+          if [ "$FALLBACK" -eq 0 ]; then
+            if [ -z "$TARGET" ]; then echo "No release/v* branch found"; exit 1; fi
+            # Strict format guard — reject anything that isn't release/vX.Y.Z (blocks
+            # ref/command injection via the workflow_dispatch input).
+            if ! printf '%s' "$TARGET" | grep -qE '^release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Refusing non-canonical branch name: $TARGET"; exit 1
+            fi
           fi
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           echo "Active release branch: $TARGET"
@@ -346,6 +359,7 @@ jobs:
           INPUT_BRANCH: ${{ github.event.inputs.branch }}
         run: |
           set -euo pipefail
+          FALLBACK=0
           if [ -n "${INPUT_BRANCH:-}" ]; then
             TARGET="$INPUT_BRANCH"
           else
@@ -353,12 +367,19 @@ jobs:
               | sed 's#origin/##' \
               | sort -t/ -k2 -V \
               | tail -1)
+            if [ -z "$TARGET" ]; then
+              TARGET="${GITHUB_REF_NAME:-main}"
+              FALLBACK=1
+              echo "::warning::No release/v* branch found; falling back to $TARGET"
+            fi
           fi
-          if [ -z "$TARGET" ]; then echo "No release/v* branch found"; exit 1; fi
-          # Same strict guard as the validation job — blocks ref/command injection
-          # through the workflow_dispatch input.
-          if ! printf '%s' "$TARGET" | grep -qE '^release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Refusing non-canonical branch name: $TARGET"; exit 1
+          if [ "$FALLBACK" -eq 0 ]; then
+            if [ -z "$TARGET" ]; then echo "No release/v* branch found"; exit 1; fi
+            # Same strict guard as the validation job — blocks ref/command injection
+            # through the workflow_dispatch input.
+            if ! printf '%s' "$TARGET" | grep -qE '^release/v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "Refusing non-canonical branch name: $TARGET"; exit 1
+            fi
           fi
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           echo "bank_branch=chore/bank-ratchet-${TARGET#release/}" >> "$GITHUB_OUTPUT"
