@@ -18,7 +18,8 @@ const pkg = require("../../package.json") as {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 };
-const declaredOpencodeAi = pkg.dependencies?.["opencode-ai"] ?? pkg.devDependencies?.["opencode-ai"];
+const declaredOpencodeAi =
+  pkg.dependencies?.["opencode-ai"] ?? pkg.devDependencies?.["opencode-ai"];
 assert.strictEqual(
   declaredOpencodeAi,
   OPENCODE_VERSION,
@@ -109,9 +110,17 @@ it("#8849 generated config is accepted by pinned OpenCode schema and startup", a
     resolvedConfig.provider.issue8849.models["context-input-output"].limit.output,
     32768
   );
-  assert.strictEqual(
+  // #8849/#10940/#11035: `limit.context` and `limit.output` are REQUIRED by OpenCode's
+  // v1 provider schema, so the generator always emits both — with 128K/8K fallbacks for
+  // a model the catalog knows nothing about. OpenCode must accept that as-is, which the
+  // `Missing key …limit.output` assertions above already guard.
+  const generated = JSON.parse(generatedConfig);
+  const generatedNoMeta = generated.provider.issue8849.models["no-limit-metadata"];
+  assert.strictEqual(generatedNoMeta.limit.context, 128_000);
+  assert.strictEqual(generatedNoMeta.limit.output, 8_192);
+  assert.deepStrictEqual(
     resolvedConfig.provider.issue8849.models["no-limit-metadata"].limit,
-    undefined
+    generatedNoMeta.limit
   );
 
   const startup = runOpencode(opencodeBinary, ["debug", "startup", "--pure"]);
