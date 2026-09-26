@@ -589,9 +589,19 @@ export async function checkConnection(conn) {
     conn.testStatus === "expired" &&
     String(conn.provider || "").toLowerCase() === "cursor" &&
     conn.lastErrorType !== "account_deactivated";
+  // A recorded unrecoverable OAuth code (invalid_grant, refresh_token_reused, ...)
+  // means the refresh token was revoked or expired for good, so the connection can
+  // never self-heal. The bounded retry budget exists to re-probe *transient* expiry;
+  // letting it resurrect these reopens #8182 and recreates the "probe every sweep
+  // forever" loop that UNRECOVERABLE_OAUTH_ERROR_CODES in tokenRefresh/shared.ts
+  // explicitly documents as the thing callers must not loop on. Reuse the canonical
+  // predicate rather than re-listing the codes here.
+  const hasUnrecoverableErrorCode =
+    typeof conn.errorCode === "string" && isUnrecoverableRefreshError({ error: conn.errorCode });
   const isRecoverableExpiredWithRetryBudget =
     conn.testStatus === "expired" &&
     conn.lastErrorType !== "account_deactivated" &&
+    !hasUnrecoverableErrorCode &&
     getExpiredRetryCount(conn) < EXPIRED_RETRY_MAX;
   const terminalStatuses = new Set(["credits_exhausted", "banned", "expired"]);
   if (
