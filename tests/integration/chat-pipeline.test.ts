@@ -19,6 +19,7 @@ const { getLatestCallLog, getResponsesCallLogs } = await import("./_chatPipeline
 const { invalidateMemorySettingsCache } = await import("../../src/lib/memory/settings.ts");
 const { skillRegistry } = await import("../../src/lib/skills/registry.ts");
 const { skillExecutor } = await import("../../src/lib/skills/executor.ts");
+const { decodeSkillToolName } = await import("../../src/lib/skills/injection.ts");
 const { handleChat } = await import("../../src/sse/handlers/chat.ts");
 const { initTranslators } = await import("../../open-sse/translator/index.ts");
 const { clearInflight } = await import("../../open-sse/services/requestDedup.ts");
@@ -726,7 +727,18 @@ test("chat pipeline applies Codex CLI fingerprint to OAuth responses requests", 
   );
 });
 
-test("chat pipeline strips previous_response_id from stateless Codex responses by default", async () => {
+test("chat pipeline fails closed on an unknown previous_response_id for stateless Codex responses by default", async () => {
+  // This used to assert 200 plus a forwarded body with previous_response_id stripped.
+  // That expectation predates the previous_response_id virtualization guard and
+  // contradicts it. In the default "auto" mode, an id OmniRoute never captured is
+  // rejected with OpenAI's own previous_response_not_found contract rather than being
+  // forwarded without history — silently dropping the prior turn would answer the
+  // request with context missing, which is worse than an explicit, retryable 400.
+  //
+  // The strip policy this used to exercise end-to-end is covered directly by
+  // responses-state-policy.test.ts ("auto strips previous_response_id for stateless
+  // Responses upstreams"), and the auto/preserve contract is pinned by
+  // chat-previous-response-id-preserve-mode.test.ts.
   await seedConnection("codex", {
     apiKey: "sk-codex-stateless-responses",
     providerSpecificData: { openaiStoreEnabled: false },
@@ -760,13 +772,10 @@ test("chat pipeline strips previous_response_id from stateless Codex responses b
     })
   );
 
-  await response.json();
-
-  assert.equal(response.status, 200);
-  assert.equal(fetchCalls.length, 1);
-  assert.match(fetchCalls[0].url, /\/responses$/);
-  assert.equal(fetchCalls[0].body.previous_response_id, undefined);
-  assert.equal(fetchCalls[0].body.store, false);
+  const payload = (await response.json()) as { error?: { code?: string; message?: string } };
+  assert.equal(response.status, 400);
+  assert.equal(payload.error?.code, "previous_response_not_found");
+  assert.equal(fetchCalls.length, 0, "must reject before any upstream dispatch");
 });
 
 test("chat pipeline preserve mode forwards previous_response_id for responses requests", async () => {
@@ -1464,7 +1473,17 @@ test("chat pipeline injects skills into tools and intercepts tool calls with ski
   assert.equal(response.status, 200);
   assert.equal(fetchCalls.length, 1);
   assert.ok(Array.isArray(fetchCalls[0].body.tools));
-  assert.equal(fetchCalls[0].body.tools[0].function.name, "lookupWeather@1.0.0");
+  // Skill ids are name@version, and "@"/"." violate the provider tool-name pattern
+  // ^[a-zA-Z0-9_-]+$, so injection.ts encodes them reversibly as
+  // omr_skill_<base64url(name@version)>. This assertion used to expect the raw
+  // "lookupWeather@1.0.0" wire name, which upstream would reject. Pin the literal
+  // encoded form and the decode round-trip so the encoding stays reversible.
+  assert.equal(fetchCalls[0].body.tools[0].function.name, "omr_skill_bG9va3VwV2VhdGhlckAxLjAuMA");
+  assert.equal(
+    decodeSkillToolName(fetchCalls[0].body.tools[0].function.name),
+    "lookupWeather@1.0.0",
+    "encoded skill tool names must decode back to the original name@version"
+  );
   assert.equal(json.choices[0].finish_reason, "tool_calls");
   assert.equal(json.tool_results[0].tool_call_id, "call_weather");
   assert.equal(JSON.parse(json.tool_results[0].output).forecast, "Sunny in Sao Paulo");
