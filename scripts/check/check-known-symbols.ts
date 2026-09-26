@@ -7,7 +7,8 @@
 //       (open-sse/executors/index.ts) DEVE resolver, via getExecutor(), para uma
 //       instância de BaseExecutor que expõe execute() + getProvider(). Um alias que
 //       não resolve para um executor válido é um símbolo morto (roteia para fallback
-//       silencioso em vez de falhar).
+//       silencioso em vez de falhar). getExecutor() é async desde o registro lazy
+//       (#11220), então cada alias é materializado e então conferido.
 //
 //   (2) COMBO STRATEGIES — o despacho DEVE tratar exatamente o conjunto canônico de
 //       ROUTING_STRATEGY_VALUES ∪ INTERNAL_ROUTING_STRATEGY_VALUES
@@ -163,20 +164,48 @@ export type ExecutorLike = {
 };
 
 /**
+ * Resolvedor de alias → executor. Aceita tanto um resolvedor síncrono (injetado em
+ * teste) quanto o `getExecutor()` real, que é ASSÍNCRONO desde o registro lazy
+ * (#11220): o alias e sua ordem são declarados no import do módulo, mas a classe
+ * só é importada e instanciada no primeiro uso, via loadRegisteredExecutor().
+ */
+export type ExecutorResolver = (
+  alias: string
+) => ExecutorLike | null | undefined | Promise<ExecutorLike | null | undefined>;
+
+/**
  * Dada a lista de aliases e um resolvedor (getExecutor), retorna os aliases que NÃO
  * resolvem para um BaseExecutor válido (não é instância, ou falta execute/getProvider).
  * isInstance é injetado para manter a função pura/testável com inputs sintéticos.
+ *
+ * O resolvedor é aguardado (sequencialmente, para a ordem de relato seguir a ordem de
+ * declaração) porque `getExecutor()` é async. Um alias cujo loader REJEITA (executor
+ * quebrado) é contado como não-conforme em vez de derrubar o gate inteiro — o
+ * objetivo é relatar o alias, não mascarar os demais.
  */
-export function findNonConformingExecutors(
+export async function findNonConformingExecutors(
   aliases: string[],
-  resolve: (alias: string) => ExecutorLike | null | undefined,
+  resolve: ExecutorResolver,
   isInstance: (value: unknown) => boolean
-): string[] {
-  return aliases.filter((alias) => {
-    const ex = resolve(alias);
-    if (!ex || !isInstance(ex)) return true;
-    return typeof ex.execute !== "function" || typeof ex.getProvider !== "function";
-  });
+): Promise<string[]> {
+  const nonConforming: string[] = [];
+  for (const alias of aliases) {
+    let ex: ExecutorLike | null | undefined;
+    try {
+      ex = await resolve(alias);
+    } catch {
+      nonConforming.push(alias);
+      continue;
+    }
+    if (!ex || !isInstance(ex)) {
+      nonConforming.push(alias);
+      continue;
+    }
+    if (typeof ex.execute !== "function" || typeof ex.getProvider !== "function") {
+      nonConforming.push(alias);
+    }
+  }
+  return nonConforming;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -460,7 +489,8 @@ async function main(): Promise<void> {
 
   // ── (1) Executor conformance ──────────────────────────────────────────────
   const executorsMod = await import("@omniroute/open-sse/executors/index.ts");
-  const getExecutor = executorsMod.getExecutor as (alias: string) => ExecutorLike;
+  // getExecutor() é async desde o registro lazy (#11220) — deve ser aguardado.
+  const getExecutor = executorsMod.getExecutor as ExecutorResolver;
   const BaseExecutor = executorsMod.BaseExecutor as new (...args: never[]) => unknown;
   const indexSource = readFileSync(resolvePath(REPO_ROOT, "open-sse/executors/index.ts"), "utf8");
   const aliases = extractExecutorAliases(indexSource);
@@ -470,7 +500,7 @@ async function main(): Promise<void> {
     );
   }
   const isExecutorInstance = (value: unknown) => value instanceof BaseExecutor;
-  const badExecutors = findNonConformingExecutors(aliases, getExecutor, isExecutorInstance);
+  const badExecutors = await findNonConformingExecutors(aliases, getExecutor, isExecutorInstance);
   if (badExecutors.length) {
     failures.push(
       `[executor] ${badExecutors.length} alias(es) registrado(s) não resolvem para um BaseExecutor válido (instância + execute() + getProvider()):\n` +
