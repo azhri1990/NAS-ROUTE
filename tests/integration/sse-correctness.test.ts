@@ -79,11 +79,19 @@ test("3. no leaked idle timers across N sequential streams", async () => {
   // This test creates 10 streams and drains them; it acts as a smoke test that
   // the process does not hang (a leaked setInterval that fires 10s later would
   // prevent the test process from exiting cleanly in --test-force-exit mode).
+  //
+  // Each stream must forward a real content delta: since #9268 a stream that
+  // forwards nothing valuable is deliberately rejected at flush time with
+  // `empty_content` (open-sse/utils/streamEmptyChoices.ts), which is covered by
+  // tests/unit/stream-empty-choices-interceptor.test.ts. Pushing only [DONE]
+  // here measured that guard, not timer cleanup.
   for (let i = 0; i < 10; i++) {
     const { up, out } = makeStream();
+    up.push(`data: {"choices":[{"delta":{"content":"tick ${i}"}}]}\n\n`);
     up.push("data: [DONE]\n\n");
     up.close();
-    await drain(out);
+    const text = await drain(out);
+    assert.ok(text.includes(`tick ${i}`), `expected content in output: ${JSON.stringify(text)}`);
   }
   // If we reach here without a timeout, no blocking resources were leaked.
   assert.ok(true, "all 10 streams completed without hanging");
