@@ -3,6 +3,15 @@ import assert from "node:assert/strict";
 
 const BASE_URL = "http://localhost:20128";
 
+// This file asserts the OpenAI-compatible *listing shape* of the catalog on the
+// unauthenticated (loopback, fresh-DATA_DIR) surface. The integration job sets
+// INITIAL_PASSWORD for the whole shard so the auth-gated suites can run, which made
+// `isAuthRequired()` return true and turned these four listing GETs into 401s.
+// Drop it for this file only (node:test runs one child process per file) so the
+// pre-auth surface is asserted deterministically on every runner; the gated 401
+// contract is covered by api-routes-critical.test.ts and provider-journey.contract.test.ts.
+delete process.env.INITIAL_PASSWORD;
+
 test("contract: /api/v1 OPTIONS exposes CORS and allowed methods", async () => {
   const { OPTIONS } = await import("../../src/app/api/v1/route.ts");
   const response = await OPTIONS();
