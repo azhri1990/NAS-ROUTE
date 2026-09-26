@@ -42,7 +42,15 @@ test("weighted: 70/30 weights produce roughly proportional distribution", async 
     assert.equal(r.status, 200);
   }
   const seen = h.providersSeen();
-  const openaiShare = seen.filter((p) => p === "openai").length / N;
+  // `seen` records every upstream fetch, not just the one dispatch per request:
+  // seeding a connection also syncs provider extra-usage/quota state, so it runs to
+  // ~250 calls for 200 requests. Dividing by the hardcoded N therefore inflated
+  // openai's share (0.84-0.87) even though the dispatches were a clean 140/60 = 0.70
+  // split, and made this fail for a dispatcher that was working correctly. Measure
+  // the share over the calls actually observed, and still assert that at least one
+  // call was recorded per request so a silent no-dispatch cannot pass vacuously.
+  assert.ok(seen.length >= N, `expected at least ${N} upstream calls, got ${seen.length}`);
+  const openaiShare = seen.filter((p) => p === "openai").length / seen.length;
   // Tolerance ±0.12 absorbs sampling noise at N=200 while still proving the split.
   assert.ok(openaiShare > 0.58 && openaiShare < 0.82, `openai share ${openaiShare} not ~0.70`);
   assert.ok(seen.includes("claude"), "weighted must still reach the 30% target");
