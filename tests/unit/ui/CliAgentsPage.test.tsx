@@ -48,20 +48,21 @@ vi.mock("@/app/(dashboard)/dashboard/cli-code/components/CliStatusBadge", () => 
 
 // ── Static imports after mocks ────────────────────────────────────────────────
 
-const { default: CliAgentsPageClient } = await import(
-  "@/app/(dashboard)/dashboard/cli-agents/CliAgentsPageClient"
-);
+const { default: CliAgentsPageClient } =
+  await import("@/app/(dashboard)/dashboard/cli-agents/CliAgentsPageClient");
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 /**
  * Agent tool ids from the catalog (§3.2 of plan-14, category: "agent" in
  * src/shared/constants/cliTools.ts). "omp" and "letta" were added to the
- * catalog after plan-14 shipped, bringing the count from 6 to 8.
+ * catalog after plan-14 shipped, bringing the count from 6 to 8, and
+ * "prime-agent" after that, bringing it to 9.
  */
 const AGENT_IDS = [
   "openclaw",
   "hermes-agent",
+  "prime-agent",
   "goose",
   "interpreter",
   "omp",
@@ -150,9 +151,9 @@ describe("CliAgentsPageClient", () => {
     expect(container.textContent).toContain("pageTitle");
   }, 15000);
 
-  it("2. renders exactly 8 agent tool cards", async () => {
+  it("2. renders exactly 9 agent tool cards", async () => {
     const container = await renderPage();
-    expect(countAgentCards(container)).toBe(8);
+    expect(countAgentCards(container)).toBe(9);
   }, 15000);
 
   it("3. search filter — 'hermes' shows 1 card (hermes-agent)", async () => {
@@ -175,9 +176,7 @@ describe("CliAgentsPageClient", () => {
     const visibleCards = countAgentCards(container);
     expect(visibleCards).toBe(1);
 
-    const remainingHrefs = Array.from(
-      container.querySelectorAll<HTMLAnchorElement>("a[href]")
-    )
+    const remainingHrefs = Array.from(container.querySelectorAll<HTMLAnchorElement>("a[href]"))
       .filter((a) => a.getAttribute("href")?.startsWith("/dashboard/cli-agents/"))
       .map((a) => a.getAttribute("href") ?? "");
 

@@ -273,15 +273,11 @@ describe("claudeTlsClient", () => {
 
       await tlsFetchClaude("https://claude.ai/test", {});
 
-      // The testOverride is called with the raw options object BEFORE proxy
-      // resolution occurs (see claudeTlsClient.ts line 258:
-      //   `if (testOverride) return testOverride(url, options)`).
-      // Proxy resolution (env var → proxyUrl) only runs inside the real
-      // tls-client path, which is bypassed when an override is active.
-      // So callOptions here is exactly the {} we passed — no proxyUrl injected.
+      // tlsFetch resolves proxyUrl BEFORE the test override short-circuit, so the
+      // override observes the same options the real tls-client path would use.
       expect(mockFn).toHaveBeenCalledOnce();
       const callOptions = mockFn.mock.calls[0][1];
-      expect(callOptions.proxyUrl).toBeUndefined();
+      expect(callOptions.proxyUrl).toBe("http://env-proxy:8080");
 
       __setTlsFetchOverrideForTesting(null);
       delete process.env.HTTPS_PROXY;

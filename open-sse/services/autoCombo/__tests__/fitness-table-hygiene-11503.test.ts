@@ -17,18 +17,19 @@
  * neutral for "no evidence", never a quality claim.
  */
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { getStaticFitnessTableScore } from "../taskFitness";
 import { REGISTRY } from "../../../config/providers/index.ts";
 
 const TASK_TYPES = ["coding", "review", "planning", "analysis", "debugging", "documentation"];
 
+// Resolved from the vitest project root instead of `fileURLToPath(new URL(…,
+// import.meta.url))`: the jsdom vitest config replaces the global `URL` with
+// jsdom's own implementation, which `fileURLToPath` rejects with
+// "The URL must be of scheme file". This suite runs under both vitest configs.
 const lifecycle = JSON.parse(
-  readFileSync(
-    fileURLToPath(new URL("../../../../config/quality/model-lifecycle.json", import.meta.url)),
-    "utf8"
-  )
+  readFileSync(path.resolve(process.cwd(), "config/quality/model-lifecycle.json"), "utf8")
 ) as { retired: Record<string, { status: string }> };
 
 const retiredIds = new Set(

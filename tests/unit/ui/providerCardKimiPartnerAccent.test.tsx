@@ -23,6 +23,7 @@ import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ProviderCard from "@/app/(dashboard)/dashboard/providers/components/ProviderCard";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("next-intl", () => ({ useTranslations: () => (k: string) => k }));
 vi.mock("@/shared/components/ProviderTestSlideOver", () => ({ default: () => null }));
 vi.mock("@/shared/components/ProviderIcon", () => ({ default: () => null }));
