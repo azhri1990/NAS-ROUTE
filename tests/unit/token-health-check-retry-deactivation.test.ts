@@ -70,9 +70,10 @@ async function withPatchedProvider(providerId, config, fn) {
   }
 }
 
-function createMockFetchForInvalidGrant(tokenUrl: string) {
+function createMockFetchForInvalidGrant(tokenUrl: string, spy?: { count: number }) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (spy) spy.count += 1;
     const url = typeof input === "string" ? input : (input as Request).url;
     if (url === tokenUrl) {
       return new Response(JSON.stringify({ error: "invalid_grant" }), {
@@ -159,10 +160,16 @@ test("first unrecoverable refresh error increments expiredRetryCount without set
   }
 });
 
-// ── Test ②: checkConnection gate allows expired+retryBudget through ─────────
-test("checkConnection allows expired connection with retry budget through the terminal-status gate", async () => {
+// ── Test ②: #8182 boundary — an unrecoverable code is NOT re-probed ────────
+// An expired connection whose recorded errorCode is permanent (invalid_grant:
+// revoked/expired refresh token) must be left untouched by the sweep. The
+// bounded retry budget exists for *transient* expiry; spending it on a dead
+// OAuth credential is the probe-every-sweep loop #8182 removed, and it also
+// overwrote the row's errorCode with a provider-specific sentinel.
+test("checkConnection leaves an expired connection with an unrecoverable errorCode untouched", async () => {
   await resetStorage();
-  const originalFetch = createMockFetchForInvalidGrant(TOKEN_URL);
+  const spy = { count: 0 };
+  const originalFetch = createMockFetchForInvalidGrant(TOKEN_URL, spy);
 
   try {
     await withPatchedProvider(PROVIDER_ID, PROVIDER_CONFIG, async () => {
@@ -186,14 +193,13 @@ test("checkConnection allows expired connection with retry budget through the te
       const updated = await providersDb.getProviderConnectionById(connection.id);
       const psd = updated?.providerSpecificData as Record<string, unknown> | undefined;
 
-      // The retry path was entered: count incremented from 1 to 2
-      assert.equal(
-        psd?.expiredRetry?.count,
-        2,
-        "expiredRetry.count must increment to 2 (retry path entered)"
-      );
-      // Still active — not prematurely deactivated
-      assert.equal(updated?.isActive, true, "must remain active during retry phase");
+      // No re-probe: the terminal-status skip must fire before any network call.
+      assert.equal(spy.count, 0, "unrecoverable expired connection must not be re-probed");
+      // Row left exactly as found: the retry budget is not spent and the
+      // diagnostic that classifies the failure is not overwritten.
+      assert.equal(psd?.expiredRetry?.count, 1, "expiredRetry.count must stay at 1");
+      assert.equal(updated?.errorCode, "invalid_grant", "errorCode must be preserved");
+      assert.equal(updated?.isActive, true, "the sweep must not mutate isActive here");
       assert.equal(updated?.testStatus, "expired", "testStatus must remain 'expired'");
     });
   } finally {
@@ -201,7 +207,11 @@ test("checkConnection allows expired connection with retry budget through the te
   }
 });
 
-// ── Test ③: Terminal state only after max retry count ──────────────────────
+// ── Test ③: Terminal state only after max retry count (transient expiry) ────
+// The budget is spent on a *transient* expiry (no unrecoverable errorCode), so
+// the original regression guard is preserved: the connection is refreshed on
+// every eligible sweep and only deactivated once the budget is exhausted. The
+// permanent-code case is pinned by test ② above.
 test("terminal deactivation (isActive: false) only after reaching EXPIRED_RETRY_MAX", async () => {
   await resetStorage();
   const originalFetch = createMockFetchForInvalidGrant(TOKEN_URL);
@@ -213,11 +223,8 @@ test("terminal deactivation (isActive: false) only after reaching EXPIRED_RETRY_
         providerSpecificData: {
           expiredRetry: { count: 2, at: new Date(Date.now() - 30 * 60 * 1000).toISOString() },
         },
-        lastError: "invalid_grant",
-        lastErrorAt: new Date().toISOString(),
-        lastErrorType: "unrecoverable_refresh_error",
-        lastErrorSource: "oauth",
-        errorCode: "invalid_grant",
+        lastError: "transient upstream failure",
+        lastErrorAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
       });
 
       await tokenHealthCheck.checkConnection({
