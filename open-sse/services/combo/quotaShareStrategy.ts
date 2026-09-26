@@ -180,12 +180,28 @@ function applyDrr(targets: ResolvedComboTarget[], comboName: string): ResolvedCo
   if (targets.length <= 1) return targets.slice();
 
   const deficits = getDrrDeficits(comboName);
-  const totalWeight = targets.reduce((sum, t) => sum + normalizeWeight(t.weight), 0);
+  // toWeight() in src/lib/combos/steps.ts coerces a missing/invalid weight to 0,
+  // and every legacy string step is normalized with weight: 0, so a combo that was
+  // never weighted arrives here with all-zero weights. Summing those gives
+  // totalWeight === 0; bailing out to definition order made DRR silently degrade
+  // into "always dispatch the first target" (a 2-target equal-weight combo picked
+  // the same one 6/6 times instead of alternating). Treat an all-zero set as equal
+  // weights, which is what the caller meant.
+  //
+  // Genuinely disabling a target is unaffected: when at least one target has a
+  // positive weight the total is > 0, and a 0-weight target accrues no quantum and
+  // is therefore never selected. Only the degenerate all-zero case is reinterpreted.
+  const explicitWeights = targets.map((t) => normalizeWeight(t.weight));
+  const declaredTotal = explicitWeights.reduce((sum, w) => sum + w, 0);
+  const weights =
+    declaredTotal > 0 ? explicitWeights : targets.map(() => 1);
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
   if (totalWeight <= 0) return targets.slice();
 
   // Add each target's quantum (weight share) to its deficit.
-  for (const target of targets) {
-    const quantum = normalizeWeight(target.weight) / totalWeight;
+  for (let i = 0; i < targets.length; i++) {
+    const target = targets[i];
+    const quantum = weights[i] / totalWeight;
     deficits.set(target.executionKey, (deficits.get(target.executionKey) ?? 0) + quantum);
   }
 
