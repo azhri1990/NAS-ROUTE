@@ -1,0 +1,34 @@
+# TEMPORARY diagnostic — delete after the nightly a11y build failure is root-caused.
+#
+# The A11y axe nightly job self-builds the app inside Playwright's webServer. Every
+# `next build` failure there surfaces as a bare "Process completed with exit code 143"
+# (SIGTERM) with no error text, because the workers' stderr never reaches the job log.
+# This workflow runs the same build as its own step so the real page-data-collection
+# error is printed with full stderr.
+name: zz A11y build diagnostic (scratch)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-only:
+    name: Build only (no Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      JWT_SECRET: ci-test-secret-with-sufficient-length-for-validation
+      API_KEY_SECRET: ci-test-api-key-secret-long
+      DISABLE_SQLITE_AUTO_BACKUP: "true"
+      NODE_OPTIONS: --max-old-space-size=8192
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - name: next build (same command the webServer runs)
+        run: npm run build
