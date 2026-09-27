@@ -91,7 +91,26 @@ jobs:
       API_KEY_SECRET: ci-test-api-key-secret-long
       DISABLE_SQLITE_AUTO_BACKUP: "true"
       REQUIRE_AXE: "1"
+      # Mirrors build.yml's proven build recipe (and quality.yml's swap step). This job is
+      # the only nightly job that self-builds, and it was the only build path in the repo
+      # running with neither swap nor a raised heap. --max-old-space-size bounds V8's JS
+      # heap only, never Turbopack's native (Rust) allocation (#6409), so the swap is what
+      # absorbs the native peak during "Collecting page data". Without both, the build was
+      # SIGTERMed partway through page-data collection on 6/6 nights (Sep 22-27).
+      OMNIROUTE_BUILD_MEMORY_MB: "12288"
+      NODE_OPTIONS: --max-old-space-size=12288
     steps:
+      # Turbopack's native peak is not bounded by --max-old-space-size, so the hosted
+      # runner needs swap headroom before the self-build starts. Mirrors build.yml.
+      - name: Expand virtual memory (10 GB swap)
+        run: |
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile /swapfile
+          sudo fallocate -l 10G /mnt/swapfile || sudo dd if=/dev/zero of=/mnt/swapfile bs=1M count=10240
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+          free -h
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
@@ -108,16 +127,11 @@ jobs:
           restore-keys: playwright-chromium-${{ runner.os }}-
       - run: npx playwright install --with-deps chromium
       - name: Run axe a11y suite (self-building webServer)
-        # The webServer self-builds through scripts/build/build-next-isolated.mjs, which
-        # caps no heap of its own (resolveNextBuildEnv adds none either). So this is the
-        # one heavy Node path in the repo that runs on Node's default old-space (~4GB on
-        # a 16GB runner) while dev/test/test:unit/test:coverage all ask for 8192MB —
-        # and it is the only nightly job that self-builds, the only one that fails.
-        # The kill is silent because Playwright buffers webServer stdout until the
-        # process exits, so the log shows "The operation was canceled." and nothing
-        # else. DEBUG=pw:webserver pipes that output live, so any remaining failure is
-        # readable rather than opaque.
+        # Playwright buffers webServer stdout until the process exits, so when the
+        # self-build died the log showed only "Process completed with exit code 143" with
+        # no build output at all. DEBUG=pw:webserver streams it live, which is what
+        # identified the failure as "Collecting page data using 3 workers" rather than
+        # compilation. Keep it so any future failure is readable rather than opaque.
         env:
-          NODE_OPTIONS: --max-old-space-size=8192
           DEBUG: pw:webserver
         run: npx playwright test tests/e2e/a11y.spec.ts
