@@ -15,6 +15,7 @@
 
 import http from "node:http";
 import net from "node:net";
+import dns from "node:dns";
 import { randomUUID } from "node:crypto";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
 import { sanitizeHeaders } from "../sanitizeHeaders.ts";
@@ -70,15 +71,83 @@ function buildFetchHeaders(raw: http.IncomingHttpHeaders): Record<string, string
   return out;
 }
 
-function safeUrl(rawUrl: string | undefined, hostHeader: string | undefined): URL | null {
-  if (!rawUrl) return null;
+// Resolve a proxy target and refuse anything internal.
+//
+// This function was named "safeUrl" but only parsed the URL, so the proxy would
+// fetch any address the caller named - including 127.0.0.1, the RFC1918 ranges,
+// and cloud metadata endpoints. On an intercepting proxy that is a full SSRF
+// relay: anything able to open a request through it could read the services
+// behind it, which on this host means the assistant gateway on 8000 and the
+// local model server on 11434.
+//
+// Names are checked before resolution, and the resolved address is checked
+// again, because a public hostname can resolve to a private one.
+const BLOCKED_HOSTNAMES = new Set([
+  "localhost",
+  "localhost.localdomain",
+  "ip6-localhost",
+  "ip6-loopback",
+  "metadata",
+  "metadata.google.internal",
+  "instance-data",
+]);
+
+function isPrivateAddress(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "::1" || h === "::" || h === "0.0.0.0") return true;
+  if (h.startsWith("fe80:") || h.startsWith("fc") || h.startsWith("fd")) return true;
+  if (h.startsWith("::ffff:")) return isPrivateAddress(h.slice(7));
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  if (a === 127) return true;
+  if (a === 10) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 0) return true;
+  return false;
+}
+
+async function assertPublicTarget(target: URL): Promise<void> {
+  const host = target.hostname;
+  if (!host) throw new Error("target has no hostname");
+  if (BLOCKED_HOSTNAMES.has(host.toLowerCase()) || isPrivateAddress(host)) {
+    throw new Error(`refusing to proxy to an internal address: ${host}`);
+  }
+  let addrs: string[];
   try {
-    if (/^https?:\/\//i.test(rawUrl)) return new URL(rawUrl);
-    if (hostHeader) return new URL(`http://${hostHeader}${rawUrl}`);
+    addrs = await dns.promises.lookup(host, { all: true });
+  } catch {
+    return; // unresolvable: let the request fail naturally rather than guess
+  }
+  for (const { address } of addrs) {
+    if (isPrivateAddress(address)) {
+      throw new Error(`refusing to proxy to ${host}: it resolves to the internal address ${address}`);
+    }
+  }
+}
+
+async function safeUrl(rawUrl: string | undefined, hostHeader: string | undefined): Promise<URL | null> {
+  if (!rawUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = /^https?:\/\//i.test(rawUrl)
+      ? new URL(rawUrl)
+      : hostHeader
+        ? new URL(`http://${hostHeader}${rawUrl}`)
+        : null as unknown as URL;
   } catch {
     return null;
   }
-  return null;
+  if (!parsed) return null;
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  try {
+    await assertPublicTarget(parsed);
+  } catch (e) {
+    return null;
+  }
+  return parsed;
 }
 
 async function readBody(req: http.IncomingMessage): Promise<Buffer> {
@@ -111,7 +180,7 @@ function handleHttp(req: http.IncomingMessage, res: http.ServerResponse): void {
 
   void (async () => {
     try {
-      const target = safeUrl(req.url, req.headers.host);
+      const target = await safeUrl(req.url, req.headers.host);
       if (!target) {
         throw new Error("Invalid request URL");
       }
