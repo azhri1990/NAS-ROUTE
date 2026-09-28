@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs";
-import os from "os";
 import { getDbInstance, resetDbInstance, SQLITE_FILE } from "@/lib/db/core";
 import { openDatabaseAsync } from "@/lib/db/adapters/driverFactory";
 import type { SqliteAdapter } from "@/lib/db/adapters/types";
@@ -15,6 +14,7 @@ import { isAuthRequired, isAuthenticated } from "@/shared/utils/apiAuth";
 import { getSettings } from "@/lib/db/settings";
 import { setSystemPromptConfig } from "@omniroute/open-sse/services/systemPrompt.ts";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { secureTempDir } from "@/lib/secureTemp";
 
 const DEFAULT_MAX_UPLOAD_MB = 100;
 // Hard ceiling so a misconfigured/hostile value can't ask the route to buffer an
@@ -117,7 +117,8 @@ export async function POST(request: Request) {
     }
 
     // Write uploaded file to temp location
-    tmpPath = path.join(os.tmpdir(), `omniroute-import-${Date.now()}.sqlite`);
+    // Date.now() is guessable; mkdtemp is atomic. See src/lib/secureTemp.ts.
+    tmpPath = path.join(secureTempDir(), `omniroute-import-${Date.now()}.sqlite`);
     fs.writeFileSync(tmpPath, fileBuffer!);
 
     // Validate SQLite integrity.

@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import path from "path";
 import fs from "fs";
-import os from "os";
 import { getDbInstance, SQLITE_FILE } from "@/lib/db/core";
 import { isAuthRequired, isAuthenticated } from "@/shared/utils/apiAuth";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { secureTempDir } from "@/lib/secureTemp";
 
 /**
  * GET /api/db-backups/export — Download the current database as a .sqlite file.
@@ -27,7 +27,10 @@ export async function GET(request: Request) {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const exportFilename = `omniroute-backup-${timestamp}.sqlite`;
-    const tmpDir = os.tmpdir();
+    // Private 0700 directory rather than a predictable name in the shared tmp:
+    // the file is a database backup, so a symlink planted at this path would
+    // otherwise redirect the write. See src/lib/secureTemp.ts.
+    const tmpDir = secureTempDir();
     const tmpPath = path.join(tmpDir, exportFilename);
 
     // Use native SQLite backup API for a consistent snapshot

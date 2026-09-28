@@ -4,10 +4,10 @@ import { exportAllSummaryRows } from "@/lib/db/backup";
 import { CALL_LOGS_DIR } from "@/lib/usage/callLogArtifacts";
 import fs from "fs";
 import path from "path";
-import os from "os";
 import { execFileSync } from "node:child_process";
 import { isAuthenticated } from "@/shared/utils/apiAuth";
 import { sanitizeErrorMessage } from "@omniroute/open-sse/utils/error";
+import { secureTempDir } from "@/lib/secureTemp";
 
 /**
  * GET /api/db-backups/exportAll
@@ -28,8 +28,10 @@ export async function GET(request: NextRequest) {
 
     const db = getDbInstance();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const tempDir = path.join(os.tmpdir(), `omniroute-export-${timestamp}`);
-    const zipPath = path.join(os.tmpdir(), `omniroute-full-backup-${timestamp}.zip`);
+    // Both paths are now inside a private 0700 directory. A timestamp-derived
+    // name in the shared tmp is guessable, which is the whole defect.
+    const tempDir = secureTempDir();
+    const zipPath = path.join(secureTempDir(), `omniroute-full-backup-${timestamp}.zip`);
 
     try {
       // Create temp directory
