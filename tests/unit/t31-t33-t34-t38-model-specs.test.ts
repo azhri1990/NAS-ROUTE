@@ -33,8 +33,11 @@ test("T31: antigravity static catalog exposes client-visible Gemini preview IDs"
 });
 
 test("T31: legacy Gemini aliases resolve to Gemini 3.1 IDs", () => {
-  assert.equal(resolveDeprecatedAlias("gemini-3-pro-high"), "gemini-3.1-pro-high");
-  assert.equal(resolveDeprecatedAlias("gemini-3-pro-low"), "gemini-3.1-pro-low");
+  // #11503 moved the rewrite target to the hyphenated spelling the devin/kie catalogs
+  // publish ("gemini-3-1-pro-high" / "gemini-3-1-pro-low"). The dotted ids are the
+  // Antigravity catalog's own spelling and are not routable through those providers.
+  assert.equal(resolveDeprecatedAlias("gemini-3-pro-high"), "gemini-3-1-pro-high");
+  assert.equal(resolveDeprecatedAlias("gemini-3-pro-low"), "gemini-3-1-pro-low");
 });
 
 test("T33: thinkingLevel string is converted into numeric thinkingBudget", () => {

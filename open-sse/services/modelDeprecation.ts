@@ -25,7 +25,13 @@ const BUILT_IN_ALIASES: Record<string, string> = {
   // #11503: the catalog spells this one with hyphens ("gemini-3-1-pro-high"); the
   // dotted form is not a routable id, so the rewrite used to guarantee a 404.
   "gemini-3-pro-high": "gemini-3-1-pro-high",
-  "gemini-3-pro-low": "gemini-3.1-pro-low",
+  // Same reasoning as -high above: the devin and kie catalogs carry
+  // "gemini-3-1-pro-low" (hyphens), so the dotted rewrite 404'd on both. Antigravity
+  // is unaffected either way — it lists the deprecated id "gemini-3-pro-low" in its own
+  // fallback chain (config/antigravityModelAliases.ts), so resolveModelAlias() returns it
+  // verbatim and never reaches this table. Do not "fix" this back to dots: the dotted
+  // spelling in config/agyModels.ts belongs to the Antigravity catalog alone.
+  "gemini-3-pro-low": "gemini-3-1-pro-low",
   // Retired free Gemma (was in the gemini-free pool) → current gemini-free model
   "gemma-4": "gemini-3.1-flash-lite",
 
